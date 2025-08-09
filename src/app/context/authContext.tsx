@@ -71,27 +71,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [token]);
 
   const login = async (email: string, password: string) => {
-    setIsLoading(true);
-    try {
-      const response = await axios.post(
+  setIsLoading(true);
+  try {
+    await axios.post(
       `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/login`,
       { email, password },
-      { withCredentials: true } // This ensures cookies are sent/received
+      { withCredentials: true } // Cookies are handled automatically
     );
-      
-      // const { token } = response.data;
-     
-      // setToken(token);
-      setIsAuthenticated(true);
-    } catch (error) {
-      setIsAuthenticated(false);
-      setToken(null);
-      Cookies.remove("authToken");
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    setIsAuthenticated(true); // Rely on checkAuth() to verify the cookie
+  } catch (error) {
+    throw error;
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const logout = async () => {
     setIsLoading(true);
