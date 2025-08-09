@@ -74,7 +74,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   setIsLoading(true);
   try {
     await axios.post(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/login`,
+      `${process.env.NEXT_PUBLIC_API_BASE_URL||"https://chatbackend-fk4i.onrender.com"}/api/user/login`,
       { email, password },
       { withCredentials: true } // Cookies are handled automatically
     );
