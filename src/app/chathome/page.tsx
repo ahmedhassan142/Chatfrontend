@@ -176,8 +176,8 @@ const ChatHome = () => {
       clearTimeout(reconnectTimeoutRef.current);
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://chatapp-backend-jyt9.onrender.com';
-    const wsUrl = baseUrl.replace(/^https/, 'ws');
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL|| ""
+    const wsUrl = baseUrl.replace(/^https/, 'wss');
     const fullUrl = `${wsUrl}?token=${token}`;
 
     setConnectionStatus('connecting');
