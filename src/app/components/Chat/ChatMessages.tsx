@@ -205,7 +205,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   const handleDelete = async (messageId: string) => {
     setDeletingId(messageId);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/messages/${messageId}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL||'https://chatbackend-fk4i.onrender.com'}/api/user/messages/${messageId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

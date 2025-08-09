@@ -39,7 +39,7 @@ export const ProfileProvider: React.FC<{children: ReactNode}> = ({ children }) =
       setIsLoading(true);
       setError(null);
       const response = await axios.get(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/profile`,
+        `${process.env.NEXT_PUBLIC_API_BASE_URL||'https://chatbackend-fk4i.onrender.com'}/api/user/profile`,
         {
           headers: {
             Authorization: `Bearer ${token}`
