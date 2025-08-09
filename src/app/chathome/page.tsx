@@ -170,97 +170,73 @@ const ChatHome = () => {
   };
 
   const connectToWebSocket = useCallback(() => {
-    if (!isAuthenticated || !token) return;
+  if (!isAuthenticated || !token) return;
 
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
-
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL|| ""
-    const wsUrl = baseUrl.replace(/^https/, 'wss');
-    const fullUrl = `${wsUrl}?token=${token}`;
-
-    setConnectionStatus('connecting');
-    const socket = new WebSocket(fullUrl);
-
-    socket.onopen = () => {
-      setWs(socket);
-      setConnectionStatus('connected');
-      reconnectAttempts.current = 0;
-    };
-
-    socket.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setConnectionStatus('disconnected');
-    };
-    const MAX_RECONNECT_ATTEMPTS = 5;
-
-
-    socket.onclose = (event) => {
-      if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
-    console.error("Max reconnection attempts reached");
-    return;
+  // Clear any existing connection
+  if (wsRef.current) {
+    wsRef.current.close();
   }
-      console.log('WebSocket closed:', event.code, event.reason);
-      setConnectionStatus('disconnected');
-      
-      const delay = Math.min(5000 * Math.pow(2, reconnectAttempts.current), 30000);
-      reconnectAttempts.current += 1;
-      
-      reconnectTimeoutRef.current = setTimeout(() => {
-        if (isAuthenticated) {
-          connectToWebSocket();
-        }
-      }, delay);
-    };
 
-    socket.onmessage = (event) => {
-      try {
-        const messageData = JSON.parse(event.data);
-        
-        if ('online' in messageData) {
-          const people: Record<string, { username: string; avatarLink?: string }> = {};
-          messageData.online.forEach(({ userId, username, avatarLink }: any) => {
-            if (userId !== userDetails?._id) {
-              people[userId] = { username, avatarLink };
-            }
-          });
-          setOnlinePeople(people);
-        } 
-        else if ('text' in messageData) {
-          setMessages(prev => {
-            const existingIndex = prev.findIndex((msg:Message) => 
-              msg._id === messageData._id || 
-              (msg._id.includes('temp-') && 
-              msg.text === messageData.text &&
-              msg.sender === messageData.sender &&
-              msg.recipient === messageData.recipient
-            ));
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+  const wsUrl = new URL(baseUrl);
+  
+  // Force wss in production
+  wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  wsUrl.pathname = '/ws'; // Add the path
+  
+  // Add token
+  wsUrl.searchParams.set('token', token);
 
-            if (existingIndex >= 0) {
-              const newMessages = [...prev];
-              newMessages[existingIndex] = {
-                ...messageData,
-                status: 'sent'
-              };
-              return newMessages;
-            }
-            
-            return [...prev, {
-              ...messageData,
-              status: 'sent'
-            }];
-          });
-        }
-      } catch (error) {
-        console.error('Error processing message:', error);
+  const socket = new WebSocket(wsUrl.toString());
+
+  // Heartbeat
+  const heartbeatInterval = setInterval(() => {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
+    }
+  }, 25000); // 25 seconds
+
+  socket.onopen = () => {
+    setConnectionStatus('connected');
+    console.log('WebSocket connected');
+  };
+
+  socket.onerror = (error) => {
+    console.error('WebSocket error:', error);
+    setConnectionStatus('disconnected');
+  };
+
+  socket.onclose = (event) => {
+    clearInterval(heartbeatInterval);
+    console.log(`WebSocket closed: ${event.code} - ${event.reason}`);
+    setConnectionStatus('disconnected');
+    
+    // Reconnect logic
+    if (event.code !== 1000) { // Don't reconnect if normal closure
+      setTimeout(connectToWebSocket, 5000);
+    }
+  };
+
+  socket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      
+      // Handle pong response
+      if (data.type === 'pong') {
+        //@ts-ignore
+        setLatency(Date.now() - data.ts);
+        return;
       }
-    };
+      
+      // Rest of your message handling
+    } catch (error) {
+      console.error('Message parse error:', error);
+    }
+  };
 
-    wsRef.current = socket;
-    return socket;
-  }, [isAuthenticated, token, userDetails?._id]);
-
+  wsRef.current = socket;
+  setWs(socket);
+}, [isAuthenticated, token]);
   useEffect(() => {
     const verifyAuth = async () => {
       await checkAuth();
@@ -281,7 +257,9 @@ const ChatHome = () => {
 
     const socket = connectToWebSocket();
     return () => {
+      //@ts-ignore
       if (socket) {
+        //@ts-ignore
         socket.close();
       }
       if (reconnectTimeoutRef.current) {
