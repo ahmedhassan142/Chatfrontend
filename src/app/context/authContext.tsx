@@ -74,14 +74,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setIsLoading(true);
     try {
       const response = await axios.post(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/login`,
-        { email, password },
-        { withCredentials: true }
-      );
+      `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/login`,
+      { email, password },
+      { withCredentials: true } // This ensures cookies are sent/received
+    );
       
-      const { token } = response.data;
-      Cookies.set("authToken", token, { expires: 7 });
-      setToken(token);
+      // const { token } = response.data;
+     
+      // setToken(token);
       setIsAuthenticated(true);
     } catch (error) {
       setIsAuthenticated(false);
