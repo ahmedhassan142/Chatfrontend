@@ -24,9 +24,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const checkAuth = async (): Promise<boolean> => {
     setIsLoading(true);
     try {
-      const token = Cookies.get("authToken");
-      if (token) {
-        setToken(token);
+      const cookieToken = Cookies.get("authToken");
+      if (cookieToken) {
+        setToken(cookieToken);
         setIsAuthenticated(true);
         return true;
       }
@@ -39,26 +39,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
-  // Check auth status on initial load
   useEffect(() => {
     checkAuth();
   }, []);
 
-  // Configure axios interceptors
   useEffect(() => {
     const requestInterceptor = axios.interceptors.request.use(config => {
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      // Send both cookie and Bearer token for maximum compatibility
+      const cookieToken = Cookies.get("authToken");
+      if (cookieToken) {
+        config.headers.Authorization = `Bearer ${cookieToken}`;
+        config.withCredentials = true;
       }
-      config.withCredentials = true;
       return config;
     });
 
     const responseInterceptor = axios.interceptors.response.use(
       response => response,
-      error => {
+      async error => {
         if (error.response?.status === 401) {
-          logout();
+          await logout();
         }
         return Promise.reject(error);
       }
@@ -71,28 +71,39 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [token]);
 
   const login = async (email: string, password: string) => {
-  setIsLoading(true);
-  try {
-    await axios.post(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL||"https://chatbackend-fk4i.onrender.com"}/api/user/login`,
-      { email, password },
-      { withCredentials: true } // Cookies are handled automatically
-    );
-    setIsAuthenticated(true); // Rely on checkAuth() to verify the cookie
-  } catch (error) {
-    throw error;
-  } finally {
-    setIsLoading(false);
-  }
-};
+    setIsLoading(true);
+    try {
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL||'https://chatbackend-fk4i.onrender.com'}/api/user/login`,
+        { email, password },
+        { withCredentials: true }
+      );
+      
+      // Store token in both cookie and state
+      if (response.data.token) {
+        Cookies.set("authToken", response.data.token, { expires: 7, secure: true });
+        setToken(response.data.token);
+      }
+      setIsAuthenticated(true);
+    } catch (error) {
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const logout = async () => {
     setIsLoading(true);
     try {
       await axios.post(
         `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/logout`,
-        
-        { withCredentials: true }
+        {},
+        { 
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
+          withCredentials: true 
+        }
       );
     } catch (error) {
       console.error('Logout failed:', error);

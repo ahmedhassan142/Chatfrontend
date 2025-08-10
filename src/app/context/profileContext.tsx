@@ -1,8 +1,8 @@
 "use client";
-
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { useAuth } from "./authContext";
 import axios from "axios";
+import Cookies from 'js-cookie';
 
 interface UserDetails {
   _id: string;
@@ -19,17 +19,16 @@ interface ProfileContextType {
   refreshProfile: () => Promise<void>;
 }
 
-// Add this missing context creation
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
 
 export const ProfileProvider: React.FC<{children: ReactNode}> = ({ children }) => {
-  const { isAuthenticated, token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchUserDetails = useCallback(async () => {
-    if (!isAuthenticated || !token) {
+    if (!isAuthenticated) {
       setUserDetails(null);
       setIsLoading(false);
       return;
@@ -38,11 +37,15 @@ export const ProfileProvider: React.FC<{children: ReactNode}> = ({ children }) =
     try {
       setIsLoading(true);
       setError(null);
+      
+      // Get token from cookie if available
+      const cookieToken = Cookies.get("authToken");
+      
       const response = await axios.get(
         `${process.env.NEXT_PUBLIC_API_BASE_URL||'https://chatbackend-fk4i.onrender.com'}/api/user/profile`,
         {
           headers: {
-            Authorization: `Bearer ${token}`
+            Authorization: cookieToken ? `Bearer ${cookieToken}` : undefined
           },
           withCredentials: true
         }
@@ -59,10 +62,31 @@ export const ProfileProvider: React.FC<{children: ReactNode}> = ({ children }) =
       console.error("Profile fetch error:", err);
       setError(err.response?.data?.error || "Failed to load profile");
       setUserDetails(null);
+      
+      // If it's a 401 error, try again with just cookies (no Bearer token)
+      if (err.response?.status === 401) {
+        try {
+          const fallbackResponse = await axios.get(
+            `${process.env.NEXT_PUBLIC_API_BASE_URL||'https://chatbackend-fk4i.onrender.com'}/api/user/profile`,
+            { withCredentials: true } // Rely on cookies only
+          );
+          
+          setUserDetails({
+            _id: fallbackResponse.data._id,
+            firstName: fallbackResponse.data.firstName,
+            lastName: fallbackResponse.data.lastName,
+            email: fallbackResponse.data.email,
+            avatarLink: fallbackResponse.data.avatarLink
+          });
+          return;
+        } catch (fallbackError) {
+          console.error("Fallback profile fetch failed:", fallbackError);
+        }
+      }
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, token]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     fetchUserDetails();
