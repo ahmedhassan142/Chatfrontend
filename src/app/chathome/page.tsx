@@ -92,36 +92,50 @@ const ChatHome = () => {
     }
   }, [isAuthenticated, onlinePeople, userDetails?._id, logout, token]);
 
-  const fetchMessages = useCallback(async () => {
-    if (!selectedUserId || !token) return;
+  // Updated fetchMessages in ChatHome
+const fetchMessages = useCallback(async () => {
+  if (!selectedUserId || !token) return;
 
-    try {
-      const response = await axios.get(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL||'https://chatbackend-fk4i.onrender.com'}/api/user/messages/${selectedUserId}`,
-        { 
-          withCredentials: true,
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      );
-      
-      const processedMessages = response.data.map((msg: Message) => ({
-        ...msg,
-        _id: msg._id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        createdAt: msg.createdAt || new Date().toISOString(),
-        status: 'sent'
-      }));
-      
-      setMessages(processedMessages);
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        logout();
+  try {
+    const response = await axios.get(
+      `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/messages/${selectedUserId}`,
+      { 
+        headers: { Authorization: `Bearer ${token}` },
+        withCredentials: true
       }
+    );
+    
+    setMessages(prev => {
+      // Keep any pending messages that haven't been confirmed by server
+      const pendingMessages = prev.filter(m => m.status === 'sending' || m.status === 'failed');
+      
+      return [
+        ...response.data.map((msg: Message) => ({
+          ...msg,
+          status: 'sent' as const
+        })),
+        ...pendingMessages
+      ].sort((a, b) => 
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+    });
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      logout();
     }
-  }, [selectedUserId, logout, token]);
+  }
+}, [selectedUserId, token, logout]);
+// In your ChatHome component, add this useEffect
+useEffect(() => {
+  if (!selectedUserId || !ws) return;
 
+  const interval = setInterval(() => {
+    fetchMessages();
+  }, 10000); // Refresh messages every 10 seconds
+
+  return () => clearInterval(interval);
+}, [selectedUserId, ws, fetchMessages]);
   const isSameMessage = (a: Message, b: Message) => {
     return (
       a.text === b.text &&
@@ -169,68 +183,69 @@ const ChatHome = () => {
     }
   };
 
-  const connectToWebSocket = useCallback(() => {
+// Updated WebSocket handler in ChatHome component
+const connectToWebSocket = useCallback(() => {
   if (!isAuthenticated || !token) return;
-
-  // Clear any existing connection
-  if (wsRef.current) {
-    wsRef.current.close();
-  }
 
   const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
   const wsUrl = new URL(baseUrl);
-  
-  // Force wss in production
   wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  wsUrl.pathname = '/ws'; // Add the path
-  
-  // Add token
+  wsUrl.pathname = '/ws';
   wsUrl.searchParams.set('token', token);
 
   const socket = new WebSocket(wsUrl.toString());
 
-  // Heartbeat
-  const heartbeatInterval = setInterval(() => {
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
-    }
-  }, 25000); // 25 seconds
-
   socket.onopen = () => {
     setConnectionStatus('connected');
-    console.log('WebSocket connected');
-  };
-
-  socket.onerror = (error) => {
-    console.error('WebSocket error:', error);
-    setConnectionStatus('disconnected');
-  };
-
-  socket.onclose = (event) => {
-    clearInterval(heartbeatInterval);
-    console.log(`WebSocket closed: ${event.code} - ${event.reason}`);
-    setConnectionStatus('disconnected');
-    
-    // Reconnect logic
-    if (event.code !== 1000) { // Don't reconnect if normal closure
-      setTimeout(connectToWebSocket, 5000);
-    }
+    reconnectAttempts.current = 0;
   };
 
   socket.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
       
-      // Handle pong response
-      if (data.type === 'pong') {
-        //@ts-ignore
-        setLatency(Date.now() - data.ts);
-        return;
+      // Handle incoming messages
+      if (data.type === 'message') {
+        setMessages(prev => {
+          // Replace temp messages with real ones from server
+          const existingIndex = prev.findIndex(m => 
+            m._id.startsWith('temp-') && 
+            m.text === data.text && 
+            m.sender === data.sender
+          );
+          
+          if (existingIndex >= 0) {
+            const newMessages = [...prev];
+            newMessages[existingIndex] = {
+              ...newMessages[existingIndex],
+              _id: data._id,
+              status: 'sent',
+              createdAt: data.createdAt
+            };
+            return newMessages;
+          }
+          
+          // Add new messages from other users
+          return [...prev, {
+            _id: data._id,
+            text: data.text,
+            sender: data.sender,
+            recipient: data.recipient,
+            createdAt: data.createdAt,
+            status: 'sent'
+          }];
+        });
       }
-      
-      // Rest of your message handling
     } catch (error) {
       console.error('Message parse error:', error);
+    }
+  };
+
+  socket.onclose = (event) => {
+    if (event.code !== 1000) {
+      const delay = Math.min(5000 * Math.pow(2, reconnectAttempts.current), 30000);
+      setTimeout(connectToWebSocket, delay);
+      reconnectAttempts.current++;
     }
   };
 
