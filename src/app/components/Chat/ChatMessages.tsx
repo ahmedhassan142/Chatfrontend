@@ -52,6 +52,10 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   const pressTimer = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  if (!Array.isArray(messages)) {
+  console.error('Messages is not an array:', messages);
+  return <div>Error loading messages</div>;
+}
 
   // Generate unique keys for messages
   const messagesWithKeys = useMemo(() => {

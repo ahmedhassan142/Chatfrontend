@@ -104,13 +104,22 @@ const fetchMessages = useCallback(async () => {
         withCredentials: true
       }
     );
-    
+
+    // Handle both response formats (data.messages and direct messages array)
+    const receivedMessages = Array.isArray(response.data?.data) 
+      ? response.data.data // New format: { data: [...] }
+      : Array.isArray(response.data?.messages) 
+        ? response.data.messages // Old format: { messages: [...] }
+        : []; // Fallback to empty array
+
     setMessages(prev => {
-      // Keep any pending messages that haven't been confirmed by server
-      const pendingMessages = prev.filter(m => m.status === 'sending' || m.status === 'failed');
+      // Keep pending messages
+      const pendingMessages = prev.filter(m => 
+        m.status === 'sending' || m.status === 'failed'
+      );
       
       return [
-        ...response.data.map((msg: Message) => ({
+        ...receivedMessages.map((msg: Message) => ({
           ...msg,
           status: 'sent' as const
         })),
@@ -121,9 +130,15 @@ const fetchMessages = useCallback(async () => {
     });
   } catch (error) {
     console.error('Error fetching messages:', error);
-    if (axios.isAxiosError(error) && error.response?.status === 401) {
-      logout();
+    if (axios.isAxiosError(error)) {
+      if (error.response?.status === 401) {
+        logout();
+      } else if (error.response?.status === 404) {
+        // Handle case when no messages exist yet
+        setMessages([]);
+      }
     }
+    // Consider setting a temporary error state here
   }
 }, [selectedUserId, token, logout]);
 // In your ChatHome component, add this useEffect
