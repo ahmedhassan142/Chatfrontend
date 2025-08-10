@@ -53,45 +53,51 @@ const ChatHome = () => {
   const reconnectAttempts = useRef(0);
 
   const fetchPeople = useCallback(async () => {
-    if (!isAuthenticated) return;
+  if (!isAuthenticated) return;
 
-    setLoadingPeople(true);
-    try {
-      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE_URL||'https://chatbackend-fk4i.onrender.com'}/api/user/people`, {
-        withCredentials: true,
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-
-      const peopleData = response.data.map((p: Person) => ({
-        _id: p._id,
-        firstName: p.firstName,
-        lastName: p.lastName,
-        avatarLink: p.avatarLink,
-      }));
-
-      const offlinePeopleArr = peopleData
-        .filter((p: Person) => p._id !== userDetails?._id)
-        .filter((p: Person) => !onlinePeople[p._id]);
-
-      setOfflinePeople(prev => ({
-        ...prev,
-        ...offlinePeopleArr.reduce((acc: Record<string, Person>, p: Person) => {
-          acc[p._id] = p;
-          return acc;
-        }, {})
-      }));
-    } catch (error) {
-      console.error('Error fetching people:', error);
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        logout();
+  setLoadingPeople(true);
+  try {
+    const response = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/people`, {
+      withCredentials: true,
+      headers: {
+        Authorization: `Bearer ${token}`
       }
-    } finally {
-      setLoadingPeople(false);
-    }
-  }, [isAuthenticated, onlinePeople, userDetails?._id, logout, token]);
+    });
 
+    const peopleData = response.data.map((p: Person) => ({
+      _id: p._id,
+      firstName: p.firstName,
+      lastName: p.lastName,
+      avatarLink: p.avatarLink,
+    }));
+
+    // Update offline people
+    const offlinePeopleArr = peopleData
+      .filter((p: Person) => p._id !== userDetails?._id)
+      .filter((p: Person) => !onlinePeople[p._id]);
+
+    const newOfflinePeople = offlinePeopleArr.reduce((acc: Record<string, Person>, p: Person) => {
+      acc[p._id] = p;
+      return acc;
+    }, {});
+
+    setOfflinePeople(prev => {
+      // Remove people who are now online
+      const filteredPrev = Object.fromEntries(
+        Object.entries(prev).filter(([id]) => !onlinePeople[id])
+      );
+      return { ...filteredPrev, ...newOfflinePeople };
+    });
+
+  } catch (error) {
+    console.error('Error fetching people:', error);
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      logout();
+    }
+  } finally {
+    setLoadingPeople(false);
+  }
+}, [isAuthenticated, onlinePeople, userDetails?._id, logout, token]);
   // Updated fetchMessages in ChatHome
 const fetchMessages = useCallback(async () => {
   if (!selectedUserId || !token) return;
@@ -213,42 +219,62 @@ const connectToWebSocket = useCallback(() => {
   socket.onopen = () => {
     setConnectionStatus('connected');
     reconnectAttempts.current = 0;
+    console.log('WebSocket connected');
   };
 
   socket.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
       
-      // Handle incoming messages
-      if (data.type === 'message') {
-        setMessages(prev => {
-          // Replace temp messages with real ones from server
-          const existingIndex = prev.findIndex(m => 
-            m._id.startsWith('temp-') && 
-            m.text === data.text && 
-            m.sender === data.sender
-          );
-          
-          if (existingIndex >= 0) {
-            const newMessages = [...prev];
-            newMessages[existingIndex] = {
-              ...newMessages[existingIndex],
-              _id: data._id,
-              status: 'sent',
-              createdAt: data.createdAt
+      // Handle online users list updates
+      if (data.online) {
+        const newOnlinePeople: Record<string, { username: string; avatarLink?: string }> = {};
+        data.online.forEach((person: { userId: string; username: string; avatarLink?: string }) => {
+          if (person.userId !== userDetails?._id) {
+            newOnlinePeople[person.userId] = {
+              username: person.username,
+              avatarLink: person.avatarLink
             };
-            return newMessages;
           }
-          
-          // Add new messages from other users
-          return [...prev, {
-            _id: data._id,
-            text: data.text,
-            sender: data.sender,
-            recipient: data.recipient,
-            createdAt: data.createdAt,
-            status: 'sent'
-          }];
+        });
+        setOnlinePeople(newOnlinePeople);
+        return;
+      }
+
+      // Handle incoming messages
+      if (data._id && data.sender && data.recipient) {
+        setMessages((prev:any) => {
+          // Check if message already exists
+          const exists = prev.some((m:any) => m._id === data._id);
+          if (exists) return prev;
+
+          // Replace temporary messages with the same content
+          const updatedMessages = prev.map((m:any) => 
+            (m.status === 'sending' && 
+             m.text === data.text && 
+             m.sender === data.sender && 
+             m.recipient === data.recipient)
+              ? { ...m, _id: data._id, status: 'sent', createdAt: data.createdAt }
+              : m
+          );
+
+          // If we didn't update any message, add the new one
+          if (JSON.stringify(updatedMessages) === JSON.stringify(prev)) {
+            return [...prev, {
+              _id: data._id,
+              text: data.text,
+              sender: data.sender,
+              recipient: data.recipient,
+              createdAt: data.createdAt,
+              status: 'sent'
+            }].sort((a, b) => 
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+          }
+//@ts-ignore
+          return updatedMessages.sort((a, b) => 
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
         });
       }
     } catch (error) {
@@ -257,16 +283,31 @@ const connectToWebSocket = useCallback(() => {
   };
 
   socket.onclose = (event) => {
-    if (event.code !== 1000) {
+    console.log('WebSocket closed:', event.code, event.reason);
+    setConnectionStatus('disconnected');
+    
+    if (event.code !== 1000) { // Don't reconnect if closed normally
       const delay = Math.min(5000 * Math.pow(2, reconnectAttempts.current), 30000);
-      setTimeout(connectToWebSocket, delay);
-      reconnectAttempts.current++;
+      console.log(`Attempting reconnect in ${delay}ms`);
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectAttempts.current++;
+        connectToWebSocket();
+      }, delay);
     }
+  };
+
+  socket.onerror = (error) => {
+    console.error('WebSocket error:', error);
+    setConnectionStatus('disconnected');
   };
 
   wsRef.current = socket;
   setWs(socket);
-}, [isAuthenticated, token]);
+
+  return () => {
+    socket.close();
+  };
+}, [isAuthenticated, token, userDetails?._id]);
   useEffect(() => {
     const verifyAuth = async () => {
       await checkAuth();
