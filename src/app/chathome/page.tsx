@@ -58,9 +58,10 @@ const ChatHome = () => {
   setLoadingPeople(true);
   try {
     const response = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/people`, {
-      withCredentials: true,
+      
       headers: {
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
+        withCredentials: true
       }
     });
 
@@ -296,17 +297,21 @@ const connectToWebSocket = useCallback(() => {
     }
   };
 
-  socket.onerror = (error) => {
-    console.error('WebSocket error:', error);
-    setConnectionStatus('disconnected');
-  };
+socket.onerror = (error) => {
+  console.error('WebSocket error:', error);
+  setConnectionStatus('disconnected');
+  // Attempt immediate reconnect for certain errors
+  if (!reconnectTimeoutRef.current) {
+    reconnectTimeoutRef.current = setTimeout(() => {
+      connectToWebSocket();
+    }, 1000);
+  }
+};
 
   wsRef.current = socket;
   setWs(socket);
 
-  return () => {
-    socket.close();
-  };
+ return socket;
 }, [isAuthenticated, token, userDetails?._id]);
   useEffect(() => {
     const verifyAuth = async () => {
@@ -324,21 +329,19 @@ const connectToWebSocket = useCallback(() => {
   }, [isAuthenticated, checkAuth, router, fetchPeople, isMobile]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+  if (!isAuthenticated) return;
 
-    const socket = connectToWebSocket();
-    return () => {
-      //@ts-ignore
-      if (socket) {
-        //@ts-ignore
-        socket.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, [isAuthenticated, connectToWebSocket]);
-
+  const socket = connectToWebSocket();
+  
+  return () => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.close(1000, 'Component unmounted');
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+  };
+}, [isAuthenticated, connectToWebSocket]);
   useEffect(() => {
     fetchMessages();
   }, [selectedUserId, fetchMessages]);
@@ -353,7 +356,9 @@ const connectToWebSocket = useCallback(() => {
       setShowContacts(false);
     }
   };
-
+useEffect(() => {
+  console.log('Connection status changed to:', connectionStatus);
+}, [connectionStatus]);
   const handleBackToContacts = () => {
     setSelectedUserId(null);
     if (isMobile) {
