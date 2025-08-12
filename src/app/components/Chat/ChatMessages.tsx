@@ -26,6 +26,7 @@ interface ChatMessagesProps {
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   ws?: WebSocket | null;
   messagesEndRef: React.RefObject<HTMLDivElement|null>;
+ 
   children: React.ReactNode; // Message input form component
 }
 
@@ -35,22 +36,25 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   selectedUserId,
   setMessages,
   ws,
+
   children
 }) => {
   const { token } = useAuth();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [longPressActive, setLongPressActive] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+
+
+  const [userClosedReplies, setUserClosedReplies] = useState(false);
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const pressTimer = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-
   if (!Array.isArray(messages)) {
-    console.error('Messages is not an array:', messages);
-    return <div>Error loading messages</div>;
-  }
+  console.error('Messages is not an array:', messages);
+  return <div>Error loading messages</div>;
+}
 
   // Generate unique keys for messages
   const messagesWithKeys = useMemo(() => {
@@ -92,6 +96,14 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }
   }, [selectedUserId]);
 
+  // Fetch smart replies when receiving a new message
+  
+    
+
+ 
+
+
+
   const sendMessage = (text: string) => {
     if (!selectedUserId || !ws || !userDetails) return;
 
@@ -107,6 +119,7 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     };
 
     setMessages(prev => [...prev, message]);
+   
 
     if (ws.readyState === WebSocket.OPEN) {
       try {
@@ -358,6 +371,9 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
                         )}
                       </div>
                     </div>
+
+                    {/* Smart Replies */}
+                  
                   </div>
                 );
               })}

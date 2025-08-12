@@ -53,104 +53,119 @@ const ChatHome = () => {
   const reconnectAttempts = useRef(0);
 
   const fetchPeople = useCallback(async () => {
-    if (!isAuthenticated) return;
+  if (!isAuthenticated) return;
 
-    setLoadingPeople(true);
-    try {
-      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://chatbackend-fk4i.onrender.com'}/api/user/people`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          withCredentials: true
-        }
-      });
-
-      const peopleData = response.data.map((p: Person) => ({
-        _id: p._id,
-        firstName: p.firstName,
-        lastName: p.lastName,
-        avatarLink: p.avatarLink,
-      }));
-
-      const offlinePeopleArr = peopleData
-        .filter((p: Person) => p._id !== userDetails?._id)
-        .filter((p: Person) => !onlinePeople[p._id]);
-
-      const newOfflinePeople = offlinePeopleArr.reduce((acc: Record<string, Person>, p: Person) => {
-        acc[p._id] = p;
-        return acc;
-      }, {});
-
-      setOfflinePeople(prev => {
-        const filteredPrev = Object.fromEntries(
-          Object.entries(prev).filter(([id]) => !onlinePeople[id])
-        );
-        return { ...filteredPrev, ...newOfflinePeople };
-      });
-
-    } catch (error) {
-      console.error('Error fetching people:', error);
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        logout();
+  setLoadingPeople(true);
+  try {
+    const response = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/people`, {
+      
+      headers: {
+        Authorization: `Bearer ${token}`,
+        withCredentials: true
       }
-    } finally {
-      setLoadingPeople(false);
-    }
-  }, [isAuthenticated, onlinePeople, userDetails?._id, logout, token]);
+    });
 
-  const fetchMessages = useCallback(async () => {
-    if (!selectedUserId || !token) return;
+    const peopleData = response.data.map((p: Person) => ({
+      _id: p._id,
+      firstName: p.firstName,
+      lastName: p.lastName,
+      avatarLink: p.avatarLink,
+    }));
 
-    try {
-      const response = await axios.get(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://chatbackend-fk4i.onrender.com'}/api/user/messages/${selectedUserId}`,
-        { 
-          headers: { Authorization: `Bearer ${token}` },
-          withCredentials: true
-        }
+    // Update offline people
+    const offlinePeopleArr = peopleData
+      .filter((p: Person) => p._id !== userDetails?._id)
+      .filter((p: Person) => !onlinePeople[p._id]);
+
+    const newOfflinePeople = offlinePeopleArr.reduce((acc: Record<string, Person>, p: Person) => {
+      acc[p._id] = p;
+      return acc;
+    }, {});
+
+    setOfflinePeople(prev => {
+      // Remove people who are now online
+      const filteredPrev = Object.fromEntries(
+        Object.entries(prev).filter(([id]) => !onlinePeople[id])
       );
+      return { ...filteredPrev, ...newOfflinePeople };
+    });
 
-      const receivedMessages = Array.isArray(response.data?.data) 
-        ? response.data.data
-        : Array.isArray(response.data?.messages) 
-          ? response.data.messages
-          : [];
+  } catch (error) {
+    console.error('Error fetching people:', error);
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      logout();
+    }
+  } finally {
+    setLoadingPeople(false);
+  }
+}, [isAuthenticated, onlinePeople, userDetails?._id, logout, token]);
+  // Updated fetchMessages in ChatHome
+const fetchMessages = useCallback(async () => {
+  if (!selectedUserId || !token) return;
 
-      setMessages(prev => {
-        const pendingMessages = prev.filter(m => 
-          m.status === 'sending' || m.status === 'failed'
-        );
-        
-        return [
-          ...receivedMessages.map((msg: Message) => ({
-            ...msg,
-            status: 'sent' as const
-          })),
-          ...pendingMessages
-        ].sort((a, b) => 
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        );
-      });
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-      if (axios.isAxiosError(error)) {
-        if (error.response?.status === 401) {
-          logout();
-        } else if (error.response?.status === 404) {
-          setMessages([]);
-        }
+  try {
+    const response = await axios.get(
+      `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/messages/${selectedUserId}`,
+      { 
+        headers: { Authorization: `Bearer ${token}` },
+        withCredentials: true
+      }
+    );
+
+    // Handle both response formats (data.messages and direct messages array)
+    const receivedMessages = Array.isArray(response.data?.data) 
+      ? response.data.data // New format: { data: [...] }
+      : Array.isArray(response.data?.messages) 
+        ? response.data.messages // Old format: { messages: [...] }
+        : []; // Fallback to empty array
+
+    setMessages(prev => {
+      // Keep pending messages
+      const pendingMessages = prev.filter(m => 
+        m.status === 'sending' || m.status === 'failed'
+      );
+      
+      return [
+        ...receivedMessages.map((msg: Message) => ({
+          ...msg,
+          status: 'sent' as const
+        })),
+        ...pendingMessages
+      ].sort((a, b) => 
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+    });
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    if (axios.isAxiosError(error)) {
+      if (error.response?.status === 401) {
+        logout();
+      } else if (error.response?.status === 404) {
+        // Handle case when no messages exist yet
+        setMessages([]);
       }
     }
-  }, [selectedUserId, token, logout]);
+    // Consider setting a temporary error state here
+  }
+}, [selectedUserId, token, logout]);
+// In your ChatHome component, add this useEffect
+useEffect(() => {
+  if (!selectedUserId || !ws) return;
 
-  useEffect(() => {
-    if (!selectedUserId || !ws) return;
+  const interval = setInterval(() => {
+    fetchMessages();
+  }, 10000); // Refresh messages every 10 seconds
 
-    const interval = setInterval(() => {
-      fetchMessages();
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [selectedUserId, ws, fetchMessages]);
+  return () => clearInterval(interval);
+}, [selectedUserId, ws, fetchMessages]);
+  const isSameMessage = (a: Message, b: Message) => {
+    return (
+      a.text === b.text &&
+      a.sender === b.sender &&
+      a.recipient === b.recipient &&
+      Math.abs(new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) < 1000
+    );
+  };
 
   const sendMessage = (event: React.FormEvent) => {
     event.preventDefault();
@@ -190,108 +205,114 @@ const ChatHome = () => {
     }
   };
 
-  const connectToWebSocket = useCallback(() => {
-    if (!isAuthenticated || !token) return;
+// Updated WebSocket handler in ChatHome component
+const connectToWebSocket = useCallback(() => {
+  if (!isAuthenticated || !token) return;
 
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://chatbackend-fk4i.onrender.com';
-    const wsUrl = new URL(baseUrl);
-    wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    wsUrl.pathname = '/ws';
-    wsUrl.searchParams.set('token', token);
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+  const wsUrl = new URL(baseUrl);
+  wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  wsUrl.pathname = '/ws';
+  wsUrl.searchParams.set('token', token);
 
-    const socket = new WebSocket(wsUrl.toString());
+  const socket = new WebSocket(wsUrl.toString());
 
-    socket.onopen = () => {
-      setConnectionStatus('connected');
-      reconnectAttempts.current = 0;
-      console.log('WebSocket connected');
-    };
+  socket.onopen = () => {
+    setConnectionStatus('connected');
+    reconnectAttempts.current = 0;
+    console.log('WebSocket connected');
+  };
 
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.online) {
-          const newOnlinePeople: Record<string, { username: string; avatarLink?: string }> = {};
-          data.online.forEach((person: { userId: string; username: string; avatarLink?: string }) => {
-            if (person.userId !== userDetails?._id) {
-              newOnlinePeople[person.userId] = {
-                username: person.username,
-                avatarLink: person.avatarLink
-              };
-            }
-          });
-          setOnlinePeople(newOnlinePeople);
-          return;
-        }
+  socket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      
+      // Handle online users list updates
+      if (data.online) {
+        const newOnlinePeople: Record<string, { username: string; avatarLink?: string }> = {};
+        data.online.forEach((person: { userId: string; username: string; avatarLink?: string }) => {
+          if (person.userId !== userDetails?._id) {
+            newOnlinePeople[person.userId] = {
+              username: person.username,
+              avatarLink: person.avatarLink
+            };
+          }
+        });
+        setOnlinePeople(newOnlinePeople);
+        return;
+      }
 
-        if (data._id && data.sender && data.recipient) {
-          setMessages((prev:any) => {
-            const exists = prev.some((m:any) => m._id === data._id);
-            if (exists) return prev;
+      // Handle incoming messages
+      if (data._id && data.sender && data.recipient) {
+        setMessages((prev:any) => {
+          // Check if message already exists
+          const exists = prev.some((m:any) => m._id === data._id);
+          if (exists) return prev;
 
-            const updatedMessages = prev.map((m:any) => 
-              (m.status === 'sending' && 
-               m.text === data.text && 
-               m.sender === data.sender && 
-               m.recipient === data.recipient)
-                ? { ...m, _id: data._id, status: 'sent', createdAt: data.createdAt }
-                : m
-            );
+          // Replace temporary messages with the same content
+          const updatedMessages = prev.map((m:any) => 
+            (m.status === 'sending' && 
+             m.text === data.text && 
+             m.sender === data.sender && 
+             m.recipient === data.recipient)
+              ? { ...m, _id: data._id, status: 'sent', createdAt: data.createdAt }
+              : m
+          );
 
-            if (JSON.stringify(updatedMessages) === JSON.stringify(prev)) {
-              return [...prev, {
-                _id: data._id,
-                text: data.text,
-                sender: data.sender,
-                recipient: data.recipient,
-                createdAt: data.createdAt,
-                status: 'sent'
-              }].sort((a, b) => 
-                new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-              );
-            }
-//@ts-ignore
-            return updatedMessages.sort((a, b) => 
+          // If we didn't update any message, add the new one
+          if (JSON.stringify(updatedMessages) === JSON.stringify(prev)) {
+            return [...prev, {
+              _id: data._id,
+              text: data.text,
+              sender: data.sender,
+              recipient: data.recipient,
+              createdAt: data.createdAt,
+              status: 'sent'
+            }].sort((a, b) => 
               new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
             );
-          });
-        }
-      } catch (error) {
-        console.error('Message parse error:', error);
+          }
+//@ts-ignore
+          return updatedMessages.sort((a, b) => 
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+        });
       }
-    };
+    } catch (error) {
+      console.error('Message parse error:', error);
+    }
+  };
 
-    socket.onclose = (event) => {
-      console.log('WebSocket closed:', event.code, event.reason);
-      setConnectionStatus('disconnected');
-      
-      if (event.code !== 1000) {
-        const delay = Math.min(5000 * Math.pow(2, reconnectAttempts.current), 30000);
-        console.log(`Attempting reconnect in ${delay}ms`);
-        reconnectTimeoutRef.current = setTimeout(() => {
-          reconnectAttempts.current++;
-          connectToWebSocket();
-        }, delay);
-      }
-    };
+  socket.onclose = (event) => {
+    console.log('WebSocket closed:', event.code, event.reason);
+    setConnectionStatus('disconnected');
+    
+    if (event.code !== 1000) { // Don't reconnect if closed normally
+      const delay = Math.min(5000 * Math.pow(2, reconnectAttempts.current), 30000);
+      console.log(`Attempting reconnect in ${delay}ms`);
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectAttempts.current++;
+        connectToWebSocket();
+      }, delay);
+    }
+  };
 
-    socket.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setConnectionStatus('disconnected');
-      if (!reconnectTimeoutRef.current) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectToWebSocket();
-        }, 1000);
-      }
-    };
+socket.onerror = (error) => {
+  console.error('WebSocket error:', error);
+  setConnectionStatus('disconnected');
+  // Attempt immediate reconnect for certain errors
+  if (!reconnectTimeoutRef.current) {
+    reconnectTimeoutRef.current = setTimeout(() => {
+      connectToWebSocket();
+    }, 1000);
+  }
+};
 
-    wsRef.current = socket;
-    setWs(socket);
+  wsRef.current = socket;
+  setWs(socket);
 
-    return socket;
-  }, [isAuthenticated, token, userDetails?._id]);
-
+ return socket;
+}, [isAuthenticated, token, userDetails?._id]);
   useEffect(() => {
     const verifyAuth = async () => {
       await checkAuth();
@@ -308,20 +329,19 @@ const ChatHome = () => {
   }, [isAuthenticated, checkAuth, router, fetchPeople, isMobile]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+  if (!isAuthenticated) return;
 
-    const socket = connectToWebSocket();
-    
-    return () => {
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.close(1000, 'Component unmounted');
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, [isAuthenticated, connectToWebSocket]);
-
+  const socket = connectToWebSocket();
+  
+  return () => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.close(1000, 'Component unmounted');
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+  };
+}, [isAuthenticated, connectToWebSocket]);
   useEffect(() => {
     fetchMessages();
   }, [selectedUserId, fetchMessages]);
@@ -336,17 +356,17 @@ const ChatHome = () => {
       setShowContacts(false);
     }
   };
-
-  useEffect(() => {
-    console.log('Connection status changed to:', connectionStatus);
-  }, [connectionStatus]);
-
+useEffect(() => {
+  console.log('Connection status changed to:', connectionStatus);
+}, [connectionStatus]);
   const handleBackToContacts = () => {
     setSelectedUserId(null);
     if (isMobile) {
       setShowContacts(true);
     }
   };
+
+ 
 
   if (!isAuthenticated) {
     return null;
@@ -355,6 +375,7 @@ const ChatHome = () => {
   return (
     <ProtectedRoute>
       <div className="flex min-h-screen bg-gray-900">
+        {/* Navigation Sidebar */}
         <div className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-gray-800 transform ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         } lg:translate-x-0 transition-transform duration-300 ease-in-out`}>
@@ -364,7 +385,9 @@ const ChatHome = () => {
           />
         </div>
 
+        {/* Main Content Area */}
         <div className="flex-1 flex flex-col relative">
+          {/* Mobile Header */}
           <div className="lg:hidden flex items-center justify-between p-2 bg-gray-800 border-b border-gray-700 z-20">
             <button 
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -401,6 +424,7 @@ const ChatHome = () => {
             )}
           </div>
 
+          {/* Desktop TopBar */}
           {selectedUserId && !isMobile && (
             <div className="hidden lg:block sticky top-0 z-10 bg-gray-800 border-b border-gray-700">
               <TopBar
@@ -415,7 +439,9 @@ const ChatHome = () => {
             </div>
           )}
 
+          {/* Content Area */}
           <div className="flex-1 flex overflow-hidden">
+            {/* Contacts List */}
             <div className={`${isMobile ? (showContacts ? 'fixed inset-0 z-30' : 'hidden') : 'flex-shrink-0 w-64'} bg-gray-800 border-r border-gray-700 transition-transform duration-300 ease-in-out`}>
               <OnlineUsersList
                 onlinePeople={onlinePeople}
@@ -427,7 +453,10 @@ const ChatHome = () => {
               />
             </div>
 
-            <div className={`flex-1 min-h-0 flex flex-col ${isMobile && !selectedUserId ? 'hidden' : 'flex'}`}>
+            {/* Chat Area */}
+          <div className={`flex-1 min-h-0 flex flex-col ${isMobile && !selectedUserId ? 'hidden' : 'flex'}`}>
+
+
               {selectedUserId ? (
                 <>
                   <ChatMessages
@@ -437,14 +466,19 @@ const ChatHome = () => {
                     messagesEndRef={messagesEndRef}
                     setMessages={setMessages}
                     ws={ws}
-                  >
-                    <MessageInputForm
+                   
+                  > <MessageInputForm
                       newMessage={newMessage}
                       setNewMessage={setNewMessage}
                       sendMessage={sendMessage}
                       selectedUserId={selectedUserId}
                     />
-                  </ChatMessages>
+                    </ChatMessages>
+
+                  
+                  {/* <div className="sticky bottom-0 bg-gray-800/80 backdrop-blur-md p-4 border-t border-gray-700"> */}
+                   
+                  {/* </div> */}
                 </>
               ) : (
                 <div className="flex-1 flex items-center justify-center p-4">
