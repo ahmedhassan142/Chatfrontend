@@ -227,40 +227,19 @@ const connectToWebSocket = useCallback(() => {
     try {
       const data = JSON.parse(event.data);
       
-      // Handle online users list updates
       if (data.online) {
-        const newOnlinePeople: Record<string, { username: string; avatarLink?: string }> = {};
-        data.online.forEach((person: { userId: string; username: string; avatarLink?: string }) => {
-          if (person.userId !== userDetails?._id) {
-            newOnlinePeople[person.userId] = {
-              username: person.username,
-              avatarLink: person.avatarLink
-            };
-          }
-        });
-        setOnlinePeople(newOnlinePeople);
+        // Handle online users update
         return;
       }
 
-      // Handle incoming messages
       if (data._id && data.sender && data.recipient) {
-        setMessages((prev:any) => {
-          // Check if message already exists
-          const exists = prev.some((m:any) => m._id === data._id);
-          if (exists) return prev;
-
-          // Replace temporary messages with the same content
-          const updatedMessages = prev.map((m:any) => 
-            (m.status === 'sending' && 
-             m.text === data.text && 
-             m.sender === data.sender && 
-             m.recipient === data.recipient)
-              ? { ...m, _id: data._id, status: 'sent', createdAt: data.createdAt }
-              : m
-          );
-
-          // If we didn't update any message, add the new one
-          if (JSON.stringify(updatedMessages) === JSON.stringify(prev)) {
+        //@ts-ignore
+        setMessages(prev => {
+          // Only add if it's a new message not from ourselves
+          if (data.sender !== userDetails?._id) {
+            const exists = prev.some(m => m._id === data._id);
+            if (exists) return prev;
+            
             return [...prev, {
               _id: data._id,
               text: data.text,
@@ -268,13 +247,14 @@ const connectToWebSocket = useCallback(() => {
               recipient: data.recipient,
               createdAt: data.createdAt,
               status: 'sent'
-            }].sort((a, b) => 
-              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-            );
+            }].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
           }
-//@ts-ignore
-          return updatedMessages.sort((a, b) => 
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          
+          // For our own messages, just update the status if needed
+          return prev.map(m => 
+            m.status === 'sending' && m.text === data.text && m.recipient === data.recipient
+              ? { ...m, _id: data._id, status: 'sent', createdAt: data.createdAt }
+              : m
           );
         });
       }
@@ -282,7 +262,6 @@ const connectToWebSocket = useCallback(() => {
       console.error('Message parse error:', error);
     }
   };
-
   socket.onclose = (event) => {
     console.log('WebSocket closed:', event.code, event.reason);
     setConnectionStatus('disconnected');
