@@ -227,8 +227,18 @@ const connectToWebSocket = useCallback(() => {
     try {
       const data = JSON.parse(event.data);
       
-      if (data.online) {
-        // Handle online users update
+      // Handle online users list updates
+      if (data.type === 'online_users') {
+        const newOnlinePeople: Record<string, { username: string; avatarLink?: string }> = {};
+        
+        data.online.forEach((person: { userId: string; username: string; avatarLink?: string }) => {
+          newOnlinePeople[person.userId] = {
+            username: person.username,
+            avatarLink: person.avatarLink
+          };
+        });
+        
+        setOnlinePeople(newOnlinePeople);
         return;
       }
 
