@@ -26,7 +26,6 @@ interface ChatMessagesProps {
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   ws?: WebSocket | null;
   messagesEndRef: React.RefObject<HTMLDivElement|null>;
-  onSmartReplySelect: (reply: string) => void;
   children: React.ReactNode; // Message input form component
 }
 
@@ -36,26 +35,22 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
   selectedUserId,
   setMessages,
   ws,
-  onSmartReplySelect,
   children
 }) => {
   const { token } = useAuth();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [longPressActive, setLongPressActive] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
-  const [smartReplies, setSmartReplies] = useState<string[]>([]);
-  const [showSmartReplies, setShowSmartReplies] = useState(false);
-  const [isLoadingReplies, setIsLoadingReplies] = useState(false);
-  const [userClosedReplies, setUserClosedReplies] = useState(false);
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const pressTimer = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+
   if (!Array.isArray(messages)) {
-  console.error('Messages is not an array:', messages);
-  return <div>Error loading messages</div>;
-}
+    console.error('Messages is not an array:', messages);
+    return <div>Error loading messages</div>;
+  }
 
   // Generate unique keys for messages
   const messagesWithKeys = useMemo(() => {
@@ -97,51 +92,6 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     }
   }, [selectedUserId]);
 
-  // Fetch smart replies when receiving a new message
-  useEffect(() => {
-    if (!selectedUserId || messages.length === 0 || userClosedReplies) return;
-
-    const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.sender === userDetails._id || lastMessage.text.startsWith('temp-')) return;
-
-    const fetchSmartReplies = async () => {
-      setIsLoadingReplies(true);
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_SMART_REPLY_API}/smart-reply`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ message: lastMessage.text })
-        });
-
-        if (!response.ok) throw new Error('Failed to get smart replies');
-
-        const data = await response.json();
-        setSmartReplies(data.replies);
-        setShowSmartReplies(true);
-        setUserClosedReplies(false);
-      } catch (error) {
-        console.error("Error fetching smart replies:", error);
-        setShowSmartReplies(false);
-      } finally {
-        setIsLoadingReplies(false);
-      }
-    };
-
-    fetchSmartReplies();
-  }, [messages, selectedUserId, userDetails._id, userClosedReplies]);
-
-  const handleSmartReplyClick = (reply: string) => {
-    onSmartReplySelect(reply);
-    setShowSmartReplies(false);
-  };
-
-  const handleCloseSmartReplies = () => {
-    setShowSmartReplies(false);
-    setUserClosedReplies(true);
-  };
-
   const sendMessage = (text: string) => {
     if (!selectedUserId || !ws || !userDetails) return;
 
@@ -157,8 +107,6 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
     };
 
     setMessages(prev => [...prev, message]);
-    setShowSmartReplies(false);
-    setSmartReplies([]);
 
     if (ws.readyState === WebSocket.OPEN) {
       try {
@@ -410,23 +358,6 @@ const ChatMessages: React.FC<ChatMessagesProps> = ({
                         )}
                       </div>
                     </div>
-
-                    {/* Smart Replies */}
-                    {!isMe && message._id === messages[messages.length - 1]?._id && showSmartReplies && (
-                      <div className="flex justify-start mt-2">
-                        <div className="bg-gray-800 rounded-lg p-2 flex flex-wrap gap-2">
-                          {smartReplies.map((reply, index) => (
-                            <button
-                              key={index}
-                              onClick={() => handleSmartReplyClick(reply)}
-                              className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-full text-sm text-white"
-                            >
-                              {reply}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 );
               })}
