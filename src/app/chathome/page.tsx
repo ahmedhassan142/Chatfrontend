@@ -193,7 +193,7 @@ const ChatHome = () => {
   const connectToWebSocket = useCallback(() => {
     if (!isAuthenticated || !token) return;
 
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://chatbackend-fk4i.onrender.com';
     const wsUrl = new URL(baseUrl);
     wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     wsUrl.pathname = '/ws';
