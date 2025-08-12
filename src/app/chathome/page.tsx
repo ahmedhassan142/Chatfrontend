@@ -57,7 +57,7 @@ const ChatHome = () => {
 
     setLoadingPeople(true);
     try {
-      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/people`, {
+      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://chatbackend-fk4i.onrender.com'}/api/user/people`, {
         headers: {
           Authorization: `Bearer ${token}`,
           withCredentials: true
@@ -102,7 +102,7 @@ const ChatHome = () => {
 
     try {
       const response = await axios.get(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/messages/${selectedUserId}`,
+        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://chatbackend-fk4i.onrender.com'}/api/user/messages/${selectedUserId}`,
         { 
           headers: { Authorization: `Bearer ${token}` },
           withCredentials: true
